@@ -25,6 +25,15 @@ class User < ApplicationRecord
     :verified,
   ]
 
+  # candidates for removal:
+  # - enable_post_navigation (disabled by 700)
+  # - new_post_navigation_layout (disabled by 1364)
+  # - enable_sequential_post_navigation (disabled by 680)
+  # - hide_deleted_posts (enabled by 1904)
+  # - disable_categorized_saved_searches (enabled by 2291)
+  # - disable_tagged_filenames (enabled by 387)
+  # - enable_recent_searches (enabled by 499)
+  # - disable_cropped_thumbnails (enabled by 22)
   BOOLEAN_ATTRIBUTES = %w(
     is_banned
     has_mail
@@ -45,13 +54,17 @@ class User < ApplicationRecord
     is_super_voter
     disable_tagged_filenames
     enable_recent_searches
+    disable_cropped_thumbnails
+    disable_mobile_gestures
+    enable_safe_mode
+    disable_responsive_mode
   )
 
   include Danbooru::HasBitFlags
   has_bit_flags BOOLEAN_ATTRIBUTES, :field => "bit_prefs"
 
   attr_accessor :password, :old_password
-  attr_accessible :dmail_filter_attributes, :enable_privacy_mode, :enable_post_navigation, :new_post_navigation_layout, :password, :old_password, :password_confirmation, :password_hash, :email, :last_logged_in_at, :last_forum_read_at, :has_mail, :receive_email_notifications, :comment_threshold, :always_resize_images, :favorite_tags, :blacklisted_tags, :name, :ip_addr, :time_zone, :default_image_size, :enable_sequential_post_navigation, :per_page, :hide_deleted_posts, :style_usernames, :enable_auto_complete, :custom_style, :show_deleted_children, :disable_categorized_saved_searches, :disable_tagged_filenames, :enable_recent_searches, :as => [:moderator, :gold, :platinum, :member, :anonymous, :default, :builder, :admin]
+  attr_accessible :dmail_filter_attributes, :enable_privacy_mode, :enable_post_navigation, :new_post_navigation_layout, :password, :old_password, :password_confirmation, :password_hash, :email, :last_logged_in_at, :last_forum_read_at, :has_mail, :receive_email_notifications, :comment_threshold, :always_resize_images, :favorite_tags, :blacklisted_tags, :name, :ip_addr, :time_zone, :default_image_size, :enable_sequential_post_navigation, :per_page, :hide_deleted_posts, :style_usernames, :enable_auto_complete, :custom_style, :show_deleted_children, :disable_categorized_saved_searches, :disable_tagged_filenames, :enable_recent_searches, :disable_cropped_thumbnails, :disable_mobile_gestures, :enable_safe_mode, :disable_responsive_mode, :as => [:moderator, :gold, :platinum, :member, :anonymous, :default, :builder, :admin]
   attr_accessible :level, :as => :admin
 
   validates :name, user_name: true, on: :create
@@ -63,6 +76,7 @@ class User < ApplicationRecord
   validates_presence_of :email, :if => lambda {|rec| rec.new_record? && Danbooru.config.enable_email_verification?}
   validates_presence_of :comment_threshold
   validate :validate_ip_addr_is_not_banned, :on => :create
+  validate :validate_sock_puppets, :on => :create
   before_validation :normalize_blacklisted_tags
   before_validation :set_per_page
   before_validation :normalize_email
@@ -85,7 +99,6 @@ class User < ApplicationRecord
   has_one :dmail_filter
   has_one :super_voter
   has_one :token_bucket
-  has_many :subscriptions, lambda {order("tag_subscriptions.name")}, :class_name => "TagSubscription", :foreign_key => "creator_id"
   has_many :note_versions, :foreign_key => "updater_id"
   has_many :dmails, lambda {order("dmails.id desc")}, :foreign_key => "owner_id"
   has_many :saved_searches
@@ -285,17 +298,8 @@ class User < ApplicationRecord
       Favorite.where("user_id % 100 = #{id % 100} and user_id = #{id}").order("id desc")
     end
 
-    def clean_favorite_count?
-      favorite_count < 0 || Kernel.rand(100) < [Math.log(favorite_count, 2), 5].min
-    end
-
-    def clean_favorite_count!
-      update_column(:favorite_count, Favorite.for_user(id).count)
-    end
-
     def add_favorite!(post)
       Favorite.add(post: post, user: self)
-      clean_favorite_count! if clean_favorite_count?
     end
 
     def remove_favorite!(post)
@@ -312,7 +316,7 @@ class User < ApplicationRecord
 
     module ClassMethods
       def system
-        Danbooru.config.system_user
+        User.find_by!(name: Danbooru.config.system_user)
       end
 
       def level_hash
@@ -362,7 +366,7 @@ class User < ApplicationRecord
     def promote_to_admin_if_first_user
       return if Rails.env.test?
 
-      if User.count == 0
+      if User.admins.count == 0
         self.level = Levels::ADMIN
         self.can_approve_posts = true
         self.can_upload_free = true
@@ -554,13 +558,17 @@ class User < ApplicationRecord
       is_moderator? || flagger_id == id
     end
 
+    def can_view_flagger_on_post?(flag)
+      (is_moderator? && flag.not_uploaded_by?(id)) || flag.creator_id == id
+    end
+
     def upload_limit
       @upload_limit ||= [max_upload_limit - used_upload_slots, 0].max
     end
 
     def used_upload_slots
-      uploaded_count = Post.for_user(id).where("created_at >= ?", 24.hours.ago).count
-      uploaded_comic_count = Post.for_user(id).tag_match("comic").where("created_at >= ?", 24.hours.ago).count / 3
+      uploaded_count = Post.for_user(id).where("created_at >= ?", 23.hours.ago).count
+      uploaded_comic_count = Post.for_user(id).tag_match("comic").where("created_at >= ?", 23.hours.ago).count / 3
       uploaded_count - uploaded_comic_count
     end
 
@@ -591,7 +599,7 @@ class User < ApplicationRecord
     end
 
     def next_free_upload_slot
-      (posts.where("created_at >= ?", 24.hours.ago).first.try(:created_at) || 24.hours.ago) + 24.hours
+      (posts.where("created_at >= ?", 23.hours.ago).first.try(:created_at) || 23.hours.ago) + 23.hours
     end
 
     def tag_query_limit
@@ -892,15 +900,10 @@ class User < ApplicationRecord
     end
   end
 
-  module SockPuppetMethods
-    def notify_sock_puppets
-      sock_puppet_suspects.each do |user|
-      end
-    end
-
-    def sock_puppet_suspects
-      if last_ip_addr.present?
-        User.where(:last_ip_addr => last_ip_addr)
+  concerning :SockPuppetMethods do
+    def validate_sock_puppets
+      if User.where(last_ip_addr: CurrentUser.ip_addr).where("created_at > ?", 1.day.ago).exists?
+        errors.add(:last_ip_addr, "was used recently for another account and cannot be reused for another day")
       end
     end
   end

@@ -8,7 +8,7 @@ class Artist < ApplicationRecord
   after_save :categorize_tag
   after_save :update_wiki
   validates_uniqueness_of :name
-  validate :validate_name
+  validates :name, tag_name: true
   validate :validate_wiki, :on => :create
   after_validation :merge_validation_errors
   belongs_to :creator, :class_name => "User"
@@ -58,6 +58,10 @@ class Artist < ApplicationRecord
 
     included do
       memoize :domains
+    end
+
+    def sorted_urls
+      urls.sort {|a, b| a.priority <=> b.priority}
     end
 
     def url_array
@@ -112,18 +116,6 @@ class Artist < ApplicationRecord
     module ClassMethods
       def normalize_name(name)
         name.to_s.mb_chars.downcase.strip.gsub(/ /, '_').to_s
-      end
-    end
-
-    def validate_name
-      if name =~ /^[-~]/
-        errors[:name] << "cannot begin with - or ~"
-        false
-      elsif name =~ /\*/
-        errors[:name] << "cannot contain *"
-        false
-      else
-        true
       end
     end
 
@@ -365,6 +357,18 @@ class Artist < ApplicationRecord
   end
 
   module SearchMethods
+    def find_artists(url, referer_url = nil)
+      artists = url_matches(url).order("id desc").limit(10)
+
+      if artists.empty? && referer_url.present? && referer_url != url
+        artists = url_matches(referer_url).order("id desc").limit(20)
+      end
+
+      artists
+    rescue PixivApiClient::Error => e
+      []
+    end
+
     def url_matches(string)
       matches = find_all_by_url(string).map(&:id)
 
@@ -493,15 +497,15 @@ class Artist < ApplicationRecord
       end
 
       if params[:id].present?
-        q = q.where("id in (?)", params[:id].split(",").map(&:to_i))
+        q = q.where("artists.id in (?)", params[:id].split(",").map(&:to_i))
       end
 
       if params[:creator_name].present?
-        q = q.where("creator_id = (select _.id from users _ where lower(_.name) = ?)", params[:creator_name].tr(" ", "_").mb_chars.downcase)
+        q = q.where("artists.creator_id = (select _.id from users _ where lower(_.name) = ?)", params[:creator_name].tr(" ", "_").mb_chars.downcase)
       end
 
       if params[:creator_id].present?
-        q = q.where("creator_id = ?", params[:creator_id].to_i)
+        q = q.where("artists.creator_id = ?", params[:creator_id].to_i)
       end
 
       # XXX deprecated, remove at some point.

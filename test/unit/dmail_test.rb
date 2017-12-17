@@ -3,6 +3,7 @@ require 'test_helper'
 class DmailTest < ActiveSupport::TestCase
   context "A dmail" do
     setup do
+      User.any_instance.stubs(:validate_sock_puppets).returns(true)
       @user = FactoryGirl.create(:user)
       CurrentUser.user = @user
       CurrentUser.ip_addr = "1.2.3.4"
@@ -13,6 +14,34 @@ class DmailTest < ActiveSupport::TestCase
 
     teardown do
       CurrentUser.user = nil
+    end
+
+    context "spam" do
+      setup do
+        Dmail.any_instance.stubs(:spam?).returns(true)
+        @recipient = FactoryGirl.create(:user)
+      end
+
+      should "not validate" do
+        assert_difference("Dmail.count", 2)do
+          Dmail.create_split(:to_id => @recipient.id, :title => "My video", :body => "hey Noneeditsonlyme.  My webcam see here http://bit.ly/2vTv9Ki")
+          assert(@recipient.dmails.last.is_spam?)
+        end
+      end
+
+      should "autoban spammers after sending spam to N distinct users" do
+        Dmail.any_instance.expects(:spam?).returns(true)
+
+        users = FactoryGirl.create_list(:user, Dmail::AUTOBAN_THRESHOLD)
+        users.each do |user|
+          Dmail.create_split(from: @user, to: user, title: "spam", body: "wonderful spam")
+        end
+
+        assert_equal(true, Dmail.is_spammer?(@user))
+        assert_equal(true, @user.reload.is_banned)
+        assert_equal(1, @user.bans.count)
+        assert_match(/Spambot./, @user.bans.last.reason)
+      end
     end
 
     context "filter" do
@@ -163,7 +192,7 @@ class DmailTest < ActiveSupport::TestCase
     context "that is automated" do
       setup do
         @bot = FactoryGirl.create(:user)
-        Danbooru.config.stubs(:system_user).returns(@bot)
+        User.stubs(:system).returns(@bot)
       end
 
       should "only create a copy for the recipient" do

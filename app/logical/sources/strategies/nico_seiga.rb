@@ -95,9 +95,9 @@ module Sources
           if page.is_a?(Mechanize::Image)
             return page.uri.to_s
           end
-          images = page.search("img").select {|x| x["src"] =~ /\/priv\//}
+          images = page.search("div.illust_view_big").select {|x| x["data-src"] =~ /\/priv\//}
           if images.any?
-            image_url = "http://lohas.nicoseiga.jp" + images[0]["src"]
+            image_url = "http://lohas.nicoseiga.jp" + images[0]["data-src"]
           end
         else
           image_url = nil
@@ -120,15 +120,15 @@ module Sources
 
       def normalized_url
         @normalized_url ||= begin
-          if url =~ %r!\Ahttp://lohas\.nicoseiga\.jp/o/[a-f0-9]+/\d+/(\d+)!
+          if url =~ %r!\Ahttps?://lohas\.nicoseiga\.jp/o/[a-f0-9]+/\d+/(\d+)!
             "http://seiga.nicovideo.jp/seiga/im#{$1}"
-          elsif url =~ %r{\Ahttp://lohas\.nicoseiga\.jp/priv/(\d+)\?e=\d+&h=[a-f0-9]+}i
+          elsif url =~ %r{\Ahttps?://lohas\.nicoseiga\.jp/priv/(\d+)\?e=\d+&h=[a-f0-9]+}i
             "http://seiga.nicovideo.jp/seiga/im#{$1}"
-          elsif url =~ %r{\Ahttp://lohas\.nicoseiga\.jp/priv/[a-f0-9]+/\d+/(\d+)}i
+          elsif url =~ %r{\Ahttps?://lohas\.nicoseiga\.jp/priv/[a-f0-9]+/\d+/(\d+)}i
             "http://seiga.nicovideo.jp/seiga/im#{$1}"
-          elsif url =~ %r{\Ahttp://lohas\.nicoseiga\.jp/priv/(\d+)}i
+          elsif url =~ %r{\Ahttps?://lohas\.nicoseiga\.jp/priv/(\d+)}i
             "http://seiga.nicovideo.jp/seiga/im#{$1}"
-          elsif url =~ %r{\Ahttp://lohas\.nicoseiga\.jp//?thumb/(\d+)}i
+          elsif url =~ %r{\Ahttps?://lohas\.nicoseiga\.jp//?thumb/(\d+)i?}i
             "http://seiga.nicovideo.jp/seiga/im#{$1}"
           elsif url =~ %r{/seiga/im\d+}
             url

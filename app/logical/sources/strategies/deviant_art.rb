@@ -33,12 +33,24 @@ module Sources
           @artist_commentary_title = get_artist_commentary_title_from_page(page)
           @artist_commentary_desc = get_artist_commentary_desc_from_page(page)
         end
+      rescue Mechanize::ResponseCodeError
+        # try the normal url
+        if url =~ /\.(jpg|jpeg|png|gif)/
+          @image_url = url
+        end
       end
 
       def self.to_dtext(text)
         DText.from_html(text) do |element|
           if element.name == "a" && element["href"].present?
             element["href"] = element["href"].gsub(%r!\Ahttps?://www\.deviantart\.com/users/outgoing\?!i, "")
+
+            # href may be missing the `http://` bit (ex: `inprnt.com`, `//inprnt.com`). Add it if missing.
+            uri = Addressable::URI.heuristic_parse(element["href"]) rescue nil
+            if uri.present?
+              uri.scheme ||= "http"
+              element["href"] = uri.to_s
+            end
           end
         end
       end

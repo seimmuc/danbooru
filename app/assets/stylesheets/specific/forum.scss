@@ -1,25 +1,26 @@
 div.list-of-forum-posts {
-  p.info {
-    color: #AAA;
-    font-style: italic;
-    font-size: 80%;
-  }
-
   article {
-    margin-bottom: 3em;
+    border: 1px solid #AAA;
+    margin: 1em 0em;
     word-wrap: break-word;
+    box-shadow: 1px 1px 2px #AAA;
 
     &:target {
       background-color: #FFC;
     }
 
     div.author {
+      padding: 1em 1em 0 1em;
       width: 12em;
       float: left;
-      margin-right: 2em;
+
+      time {
+        font-style: italic;
+      }
     }
 
     div.content {
+      padding: 1em;
       margin-left: 14em;
 
       menu {
@@ -34,12 +35,6 @@ div.list-of-forum-posts {
 }
 
 div#c-forum-topics {
-  p.info {
-    color: #AAA;
-    font-style: italic;
-    font-size: 80%;
-  }
-
   div.single-forum-post {
   }
 
@@ -57,7 +52,7 @@ div#c-forum-topics {
   }
 
   span.locked-topic {
-    color: #666;
+    color: gray;
   }
 
   span.level-topic {
@@ -67,5 +62,13 @@ div#c-forum-topics {
   
   tr.forum-topic-row td:last-child {
     white-space: nowrap;
+  }
+}
+
+#c-forum-posts #a-index {
+  tr[data-topic-is-deleted="true"] .forum-post-topic-title::after,
+  tr[data-is-deleted="true"] .forum-post-excerpt::after {
+    content: " (deleted)";
+    color: gray;
   }
 }

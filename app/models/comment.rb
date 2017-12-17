@@ -40,11 +40,19 @@ class Comment < ApplicationRecord
     end
 
     def hidden(user)
-      where("score < ? and is_sticky = false", user.comment_threshold)
+      if user.is_moderator?
+        where("(score < ? and is_sticky = false) or is_deleted = true", user.comment_threshold)
+      else
+        where("score < ? and is_sticky = false", user.comment_threshold)
+      end
     end
 
     def visible(user)
-      where("score >= ? or is_sticky = true", user.comment_threshold)
+      if user.is_moderator?
+        where("(score >= ? or is_sticky = true) and is_deleted = false", user.comment_threshold)
+      else
+        where("score >= ? or is_sticky = true", user.comment_threshold)
+      end
     end
 
     def deleted
@@ -174,8 +182,8 @@ class Comment < ApplicationRecord
   end
 
   def initialize_updater
-    self.updater_id ||= CurrentUser.user.id
-    self.updater_ip_addr ||= CurrentUser.ip_addr
+    self.updater_id = CurrentUser.user.id
+    self.updater_ip_addr = CurrentUser.ip_addr
   end
 
   def creator_name
@@ -252,5 +260,3 @@ class Comment < ApplicationRecord
     DText.quote(body, creator_name)
   end
 end
-
-Comment.connection.extend(PostgresExtensions)

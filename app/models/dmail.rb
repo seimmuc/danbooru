@@ -1,6 +1,13 @@
 require 'digest/sha1'
 
 class Dmail < ApplicationRecord
+  # if a person sends spam to more than 10 users within a 24 hour window, automatically ban them for 3 days.
+  AUTOBAN_THRESHOLD = 10
+  AUTOBAN_WINDOW = 24.hours
+  AUTOBAN_DURATION = 3
+
+  include Rakismet::Model
+
   with_options on: :create do
     validates_presence_of :to_id
     validates_presence_of :from_id
@@ -18,6 +25,41 @@ class Dmail < ApplicationRecord
   after_create :update_recipient
   after_create :send_dmail
 
+  rakismet_attrs author: :from_name, author_email: :from_email, content: :title_and_body, user_ip: :creator_ip_addr_str
+
+  concerning :SpamMethods do
+    class_methods do
+      def is_spammer?(user)
+        return false if user.is_gold?
+
+        spammed_users = sent_by(user).where(is_spam: true).where("created_at > ?", AUTOBAN_WINDOW.ago).distinct.count(:to_id)
+        spammed_users >= AUTOBAN_THRESHOLD
+      end
+
+      def ban_spammer(spammer)
+        spammer.bans.create! do |ban|
+          ban.banner = User.system
+          ban.reason = "Spambot."
+          ban.duration = AUTOBAN_DURATION
+        end
+      end
+    end
+
+    def title_and_body
+      "#{title}\n\n#{body}"
+    end
+
+    def creator_ip_addr_str
+      creator_ip_addr.to_s
+    end
+
+    def spam?
+      return false if Danbooru.config.rakismet_key.blank?
+      return false if from.is_gold?
+      super()
+    end
+  end
+
   module AddressMethods
     def to_name
       User.id_to_pretty_name(to_id)
@@ -25,6 +67,10 @@ class Dmail < ApplicationRecord
 
     def from_name
       User.id_to_pretty_name(from_id)
+    end
+
+    def from_email
+      from.email
     end
 
     def to_name=(name)
@@ -48,6 +94,7 @@ class Dmail < ApplicationRecord
           # recipient's copy
           copy = Dmail.new(params)
           copy.owner_id = copy.to_id
+          copy.is_spam = copy.spam?
           copy.save unless copy.to_id == copy.from_id
 
           # sender's copy
@@ -55,13 +102,15 @@ class Dmail < ApplicationRecord
           copy.owner_id = copy.from_id
           copy.is_read = true
           copy.save
+
+          Dmail.ban_spammer(copy.from) if Dmail.is_spammer?(copy.from)
         end
 
         copy
       end
 
       def create_automated(params)
-        dmail = Dmail.new(from: Danbooru.config.system_user, **params)
+        dmail = Dmail.new(from: User.system, **params)
         dmail.owner = dmail.to
         dmail.save
         dmail
@@ -94,6 +143,10 @@ class Dmail < ApplicationRecord
   end
   
   module SearchMethods
+    def sent_by(user)
+      where("dmails.from_id = ? AND dmails.owner_id != ?", user.id, user.id)
+    end
+
     def active
       where("is_deleted = ?", false)
     end
@@ -160,6 +213,12 @@ class Dmail < ApplicationRecord
         q = q.where("from_id = ?", params[:from_id].to_i)
       end
 
+      if params[:is_spam].present?
+        q = q.where("is_spam = ?", true)
+      else
+        q = q.where("is_spam = ?", false)
+      end
+
       if params[:read] == "true"
         q = q.where("is_read = true")
       elsif params[:read] == "false"
@@ -189,7 +248,7 @@ class Dmail < ApplicationRecord
   end
 
   def send_dmail
-    if to.receive_email_notifications? && to.email =~ /@/ && owner_id == to.id
+    if !is_spam? && to.receive_email_notifications? && to.email =~ /@/ && owner_id == to.id
       UserMailer.dmail_notice(self).deliver_now
     end
   end
@@ -203,7 +262,7 @@ class Dmail < ApplicationRecord
   end
 
   def is_automated?
-    from == Danbooru.config.system_user
+    from == User.system
   end
 
   def filtered?
@@ -230,5 +289,4 @@ class Dmail < ApplicationRecord
   def visible_to?(user, key)
     owner_id == user.id || (user.is_moderator? && key == self.key)
   end
-
 end

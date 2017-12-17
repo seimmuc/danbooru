@@ -8,6 +8,7 @@ class Pool < ApplicationRecord
   validates_inclusion_of :category, :in => %w(series collection)
   validate :updater_can_change_category
   validate :updater_can_remove_posts
+  validate :updater_can_edit_deleted
   belongs_to :creator, :class_name => "User"
   belongs_to :updater, :class_name => "User"
   before_validation :normalize_post_ids
@@ -19,33 +20,33 @@ class Pool < ApplicationRecord
   after_create :synchronize!
   before_destroy :create_mod_action_for_destroy
   attr_accessible :name, :description, :post_ids, :post_id_array, :post_count, :is_active, :category, :as => [:member, :gold, :platinum, :moderator, :admin, :default]
-  attr_accessible :is_deleted, :as => [:moderator, :admin]
+  attr_accessible :is_deleted, :as => [:builder, :moderator, :admin]
 
   module SearchMethods
     def deleted
-      where("is_deleted = true")
+      where("pools.is_deleted = true")
     end
 
     def undeleted
-      where("is_deleted = false")
+      where("pools.is_deleted = false")
     end
 
     def series
-      where("category = ?", "series")
+      where("pools.category = ?", "series")
     end
 
     def collection
-      where("category = ?", "collection")
+      where("pools.category = ?", "collection")
     end
 
     def series_first
-      order("(case category when 'series' then 0 else 1 end), name")
+      order("(case pools.category when 'series' then 0 else 1 end), pools.name")
     end
 
     def name_matches(name)
       name = normalize_name_for_search(name)
       name = "*#{name}*" unless name =~ /\*/
-      where("lower(name) like ? escape E'\\\\'", name.to_escaped_for_sql_like)
+      where("lower(pools.name) like ? escape E'\\\\'", name.to_escaped_for_sql_like)
     end
 
     def search(params)
@@ -57,15 +58,15 @@ class Pool < ApplicationRecord
       end
 
       if params[:id].present?
-        q = q.where("id in (?)", params[:id].split(","))
+        q = q.where("pools.id in (?)", params[:id].split(","))
       end
 
       if params[:description_matches].present?
-        q = q.where("lower(description) like ? escape E'\\\\'", "%" + params[:description_matches].mb_chars.downcase.to_escaped_for_sql_like + "%")
+        q = q.where("lower(pools.description) like ? escape E'\\\\'", "%" + params[:description_matches].mb_chars.downcase.to_escaped_for_sql_like + "%")
       end
 
       if params[:creator_name].present?
-        q = q.where("creator_id = (select _.id from users _ where lower(_.name) = ?)", params[:creator_name].tr(" ", "_").mb_chars.downcase)
+        q = q.where("pools.creator_id = (select _.id from users _ where lower(_.name) = ?)", params[:creator_name].tr(" ", "_").mb_chars.downcase)
       end
 
       if params[:creator_id].present?
@@ -73,21 +74,21 @@ class Pool < ApplicationRecord
       end
 
       if params[:is_active] == "true"
-        q = q.where("is_active = true")
+        q = q.where("pools.is_active = true")
       elsif params[:is_active] == "false"
-        q = q.where("is_active = false")
+        q = q.where("pools.is_active = false")
       end
 
       params[:order] ||= params.delete(:sort)
       case params[:order]
       when "name"
-        q = q.order("name")
+        q = q.order("pools.name")
       when "created_at"
-        q = q.order("created_at desc")
+        q = q.order("pools.created_at desc")
       when "post_count"
-        q = q.order("post_count desc")
+        q = q.order("pools.post_count desc")
       else
-        q = q.order("updated_at desc")
+        q = q.order("pools.updated_at desc")
       end
 
       if params[:category] == "series"
@@ -134,9 +135,9 @@ class Pool < ApplicationRecord
 
   def self.find_by_name(name)
     if name =~ /^\d+$/
-      where("id = ?", name.to_i).first
+      where("pools.id = ?", name.to_i).first
     elsif name
-      where("lower(name) = ?", normalize_name_for_search(name)).first
+      where("lower(pools.name) = ?", normalize_name_for_search(name)).first
     else
       nil
     end
@@ -208,7 +209,16 @@ class Pool < ApplicationRecord
   end
 
   def deletable_by?(user)
-    user.is_moderator?
+    user.is_builder?
+  end
+
+  def updater_can_edit_deleted
+    if is_deleted? && !deletable_by?(CurrentUser.user)
+      errors[:base] << "You cannot update pools that are deleted"
+      false
+    else
+      true
+    end
   end
 
   def create_mod_action_for_delete

@@ -101,8 +101,10 @@ class Upload < ApplicationRecord
     end
 
     def validate_video_duration
-      if is_video? && video.duration > 120
-        raise "video must not be longer than 2 minutes"
+      unless uploader.is_admin?
+        if is_video? && video.duration > 120
+          raise "video must not be longer than 2 minutes"
+        end
       end
     end
   end
@@ -139,13 +141,15 @@ class Upload < ApplicationRecord
       post = convert_to_post
       post.distribute_files
       if post.save
-        User.where(id: CurrentUser.id).update_all("post_upload_count = post_upload_count + 1")
         create_artist_commentary(post) if include_artist_commentary?
         ugoira_service.save_frame_data(post) if is_ugoira?
+        notify_cropper(post)
         update_attributes(:status => "completed", :post_id => post.id)
       else
         update_attribute(:status, "error: " + post.errors.full_messages.join(", "))
       end
+
+      post
     end
 
     def process!(force = false)
@@ -153,7 +157,7 @@ class Upload < ApplicationRecord
       return if !force && status =~ /processing|completed|error/
 
       process_upload
-      create_post_from_upload
+      post = create_post_from_upload
 
     rescue Timeout::Error, Net::HTTP::Persistent::Error => x
       if @tries > 3
@@ -162,9 +166,11 @@ class Upload < ApplicationRecord
         @tries += 1
         retry
       end
+      nil
 
     rescue Exception => x
       update_attributes(:status => "error: #{x.class} - #{x.message}", :backtrace => x.backtrace.join("\n"))
+      nil
       
     ensure
       delete_temp_file
@@ -197,6 +203,12 @@ class Upload < ApplicationRecord
         end
       end
     end
+
+    def notify_cropper(post)
+      if ImageCropper.enabled?
+        # ImageCropper.notify(post)
+      end
+    end
   end
 
   module FileMethods
@@ -205,7 +217,6 @@ class Upload < ApplicationRecord
     end
 
     def move_file
-      return if File.exists?(md5_file_path)
       FileUtils.mv(file_path, md5_file_path)
     end
 

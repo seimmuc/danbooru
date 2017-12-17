@@ -114,7 +114,7 @@ module Downloads
     end # def
 
     def fix_twitter_sources(src)
-      if src =~ %r!^https?://pbs\.twimg\.com/! && original_source =~ %r!^https?://twitter\.com/!
+      if src =~ %r!^https?://(?:video|pbs)\.twimg\.com/! && original_source =~ %r!^https?://twitter\.com/!
         original_source
       elsif src =~ %r!^https?://img\.pawoo\.net/! && original_source =~ %r!^https?://pawoo\.net/!
         original_source
@@ -125,9 +125,9 @@ module Downloads
 
     def set_source_to_referer(src, referer)
       if Sources::Strategies::Nijie.url_match?(src) ||
-         Sources::Strategies::Twitter.url_match?(src) ||
+         Sources::Strategies::Twitter.url_match?(src) || Sources::Strategies::Twitter.url_match?(referer) ||
          Sources::Strategies::Pawoo.url_match?(src) ||
-         Sources::Strategies::Tumblr.url_match?(src) || Sources::Strategies::Tumblr.url_match?(referer)
+         Sources::Strategies::Tumblr.url_match?(src) || Sources::Strategies::Tumblr.url_match?(referer) ||
          Sources::Strategies::ArtStation.url_match?(src) || Sources::Strategies::ArtStation.url_match?(referer)
         strategy = Sources::Site.new(src, :referer_url => referer)
         strategy.referer_url

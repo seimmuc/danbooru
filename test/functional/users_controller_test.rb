@@ -75,6 +75,10 @@ class UsersControllerTest < ActionController::TestCase
     end
 
     context "new action" do
+      setup do
+        Danbooru.config.stubs(:enable_recaptcha?).returns(false)
+      end
+      
       should "render" do
         get :new
         assert_response :success

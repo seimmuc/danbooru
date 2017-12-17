@@ -26,12 +26,12 @@ module Sources
 
     context "A twitter summary card" do
       setup do
-        @site = Sources::Site.new("https://twitter.com/NatGeo/status/787654447937847296")
+        @site = Sources::Site.new("https://twitter.com/NatGeo/status/932700115936178177")
         @site.get
       end
 
       should "get the image url" do
-        assert_equal("http://yourshot.nationalgeographic.com/u/fQYSUbVfts-T7odkrFJckdiFeHvab0GWOfzhj7tYdC0uglagsDcUxj3Tf7HBF3kZEj7S5m-zeDmZP6DBxBJlyJX_1mFp-hGf4JPt97xp0QJkwf4po1MmnZH73WC3a2Pa1Ky62C-v0cYXTur3-QwD3Pz5UI_cKIi81GABTXII8VwKUopxlNW2MYAR8kPYU2IoUhOjlvVefNcLYI74J-0IpI4tHDXE/", @site.image_url)
+        assert_equal("https://pmdvod.nationalgeographic.com/NG_Video/205/302/smpost_1510342850295.jpg", @site.image_url)
       end
     end
 
@@ -123,6 +123,21 @@ module Sources
       end
     end
 
+    context "The source site for a direct image and a referer" do
+      setup do
+        @site = Sources::Site.new("https://pbs.twimg.com/media/B4HSEP5CUAA4xyu.png:large", referer_url: "https://twitter.com/nounproject/status/540944400767922176")
+        @site.get
+      end
+
+      should "get the artist name" do
+        assert_equal("Noun Project", @site.artist_name)
+      end
+
+      should "get the image url" do
+        assert_equal("https://pbs.twimg.com/media/B4HSEP5CUAA4xyu.png:orig", @site.image_url)
+      end
+    end
+
     context "A tweet" do
       setup do
         @site = Sources::Site.new("https://twitter.com/noizave/status/875768175136317440")
@@ -141,6 +156,16 @@ module Sources
         ]
 
         assert_equal(tags, @site.tags)
+      end
+    end
+
+    context "#normalize_for_artist_finder!" do
+      setup do
+        @site = Sources::Site.new("https://twitter.com/BLAH")
+      end
+
+      should "downcase the url" do
+        assert_equal("https://twitter.com/blah", @site.normalize_for_artist_finder!)
       end
     end
   end

@@ -1,6 +1,11 @@
 require 'test_helper'
 
 class PostDisapprovalTest < ActiveSupport::TestCase
+  def setup
+    super
+    User.any_instance.stubs(:validate_sock_puppets).returns(true)
+  end
+
   context "In all cases" do
     setup do
       @alice = FactoryGirl.create(:moderator_user)
@@ -80,7 +85,7 @@ class PostDisapprovalTest < ActiveSupport::TestCase
 
         should "dmail the uploaders" do
           bot = FactoryGirl.create(:user)
-          Danbooru.config.stubs(:system_user).returns(bot)
+          User.stubs(:system).returns(bot)
 
           assert_difference(["@uploaders[0].dmails.count", "@uploaders[1].dmails.count"], 1) do
             PostDisapproval.dmail_messages!

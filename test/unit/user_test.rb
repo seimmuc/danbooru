@@ -28,26 +28,13 @@ class UserTest < ActiveSupport::TestCase
 
       should "send an automated dmail to the user" do
         bot = FactoryGirl.create(:user)
-        Danbooru.config.stubs(:system_user).returns(bot)
+        User.stubs(:system).returns(bot)
 
         assert_difference("Dmail.count", 1) do
           @user.promote_to!(User::Levels::GOLD)
         end
 
         assert(@user.dmails.exists?(from: bot, to: @user, title: "You have been promoted"))
-      end
-    end
-
-    context "favoriting a post" do
-      setup do
-        @user.update_column(:favorite_count, 999)
-        @user.stubs(:clean_favorite_count?).returns(true)
-        @post = FactoryGirl.create(:post)
-      end
-
-      should "periodically clean the favorite_count" do
-        @user.add_favorite!(@post)
-        assert_equal(1, @user.favorite_count)
       end
     end
 
@@ -307,6 +294,20 @@ class UserTest < ActiveSupport::TestCase
 
         should "not appear" do
           assert(@user.to_xml !~ /password/)
+        end
+      end
+    end
+
+    context "that might be a sock puppet" do
+      setup do
+        @user = FactoryGirl.create(:user, last_ip_addr: "127.0.0.2")
+      end
+
+      should "not validate" do
+        CurrentUser.scoped(nil, "127.0.0.2") do
+          @user = FactoryGirl.build(:user)
+          @user.save
+          assert_equal(["Last ip addr was used recently for another account and cannot be reused for another day"], @user.errors.full_messages)
         end
       end
     end

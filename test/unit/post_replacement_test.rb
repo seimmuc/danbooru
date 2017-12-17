@@ -14,11 +14,13 @@ class PostReplacementTest < ActiveSupport::TestCase
   end
 
   def setup
+    super
+
     mock_iqdb_service!
     Delayed::Worker.delay_jobs = true # don't delete the old images right away
 
     @system = FactoryGirl.create(:user, created_at: 2.weeks.ago)
-    Danbooru.config.stubs(:system_user).returns(@system)
+    User.stubs(:system).returns(@system)
 
     @uploader = FactoryGirl.create(:user, created_at: 2.weeks.ago, can_upload_free: true)
     @replacer = FactoryGirl.create(:user, created_at: 2.weeks.ago, can_approve_posts: true)
@@ -27,6 +29,8 @@ class PostReplacementTest < ActiveSupport::TestCase
   end
 
   def teardown
+    super
+    
     CurrentUser.user = nil
     CurrentUser.ip_addr = nil
     Delayed::Worker.delay_jobs = false
@@ -46,7 +50,6 @@ class PostReplacementTest < ActiveSupport::TestCase
         @post.update(source: "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png")
         @post.replace!(replacement_url: "https://www.google.com/intl/en_ALL/images/logo.gif", tags: "-tag1 tag2")
         @upload = Upload.last
-        @mod_action = ModAction.last
       end
 
       context "that is then undone" do
@@ -93,10 +96,6 @@ class PostReplacementTest < ActiveSupport::TestCase
         assert_equal("127.0.0.2", @post.uploader_ip_addr.to_s)
         assert_equal(@uploader.id, @post.uploader_id)
         assert_equal(false, @post.is_pending)
-      end
-
-      should "log a mod action" do
-        assert_match(/replaced post ##{@post.id}/, @mod_action.description)
       end
 
       should "leave a system comment" do
@@ -246,7 +245,7 @@ class PostReplacementTest < ActiveSupport::TestCase
     context "a post when replaced with a HTML source" do
       should "record the image URL as the replacement URL, not the HTML source" do
         replacement_url = "https://twitter.com/nounproject/status/540944400767922176"
-        image_url = "http://pbs.twimg.com/media/B4HSEP5CUAA4xyu.png:orig"
+        image_url = "https://pbs.twimg.com/media/B4HSEP5CUAA4xyu.png:orig"
         @post.replace!(replacement_url: replacement_url)
 
         assert_equal(image_url, @post.replacements.last.replacement_url)
@@ -264,7 +263,7 @@ class PostReplacementTest < ActiveSupport::TestCase
 
       should "not queue a deletion or log a comment" do
         upload_file("#{Rails.root}/test/files/test.jpg", "test.jpg") do |file|
-          assert_no_difference(["@post.comments.count", "ModAction.count"]) do
+          assert_no_difference(["@post.comments.count"]) do
             @post.replace!(replacement_file: file, replacement_url: "")
           end
         end

@@ -18,7 +18,7 @@ class ArtistUrl < ApplicationRecord
       url = url.sub(%r!^http://pictures.hentai-foundry.com//!, "http://pictures.hentai-foundry.com/")
       begin
         url = Sources::Site.new(url).normalize_for_artist_finder!
-      rescue PixivApiClient::Error
+      rescue PixivApiClient::Error, Sources::Site::NoStrategyError
       end
       url = url.gsub(/\/+\Z/, "")
       url + "/"
@@ -53,10 +53,30 @@ class ArtistUrl < ApplicationRecord
     url = url.gsub(/^http:\/\/i\d+\.pixiv\.net\/img\d+/, "http://*.pixiv.net/img*")
   end
 
+  def priority
+    if normalized_url =~ /pixiv\.net\/member\.php/
+      10
+
+    elsif normalized_url =~ /seiga\.nicovideo\.jp\/user\/illust/
+      10
+
+    elsif normalized_url =~ /twitter\.com/ && normalized_url !~ /status/
+      10
+
+    elsif normalized_url =~ /tumblr|patreon|deviantart|artstation/
+      20
+
+    else
+      100
+    end
+  end
+
   def normalize
     if !Sources::Site.new(normalized_url).normalized_for_artist_finder?
       self.normalized_url = self.class.normalize(url)
     end
+  rescue Sources::Site::NoStrategyError
+    self.normalized_url = self.class.normalize(url)
   end
 
   def initialize_normalized_url

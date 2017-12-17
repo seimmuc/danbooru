@@ -21,7 +21,7 @@ class PostPresenter < Presenter
 
     path = options[:path_prefix] || "/posts"
 
-    html =  %{<article itemscope itemtype="http://schema.org/ImageObject" id="post_#{post.id}" class="#{preview_class(post, options[:pool])}" #{data_attributes(post)}>}
+    html =  %{<article itemscope itemtype="http://schema.org/ImageObject" id="post_#{post.id}" class="#{preview_class(post, options[:pool], options)}" #{data_attributes(post)}>}
     if options[:tags].present? && !CurrentUser.is_anonymous?
       tag_param = "?tags=#{CGI::escape(options[:tags])}"
     elsif options[:pool_id] || options[:pool]
@@ -32,7 +32,14 @@ class PostPresenter < Presenter
       tag_param = nil
     end
     html << %{<a href="#{path}/#{post.id}#{tag_param}">}
-    html << %{<img itemprop="thumbnailUrl" src="#{post.preview_file_url}" alt="#{h(post.tag_string)}">}
+
+    if options[:show_cropped] && post.has_cropped?
+      src = post.cropped_file_url
+    else
+      src = post.preview_file_url
+    end
+
+    html << %{<img itemprop="thumbnailUrl" src="#{src}" alt="#{h(post.tag_string)}">}
     html << %{</a>}
 
     if options[:pool]
@@ -40,6 +47,12 @@ class PostPresenter < Presenter
       html << %{<a href="/pools/#{options[:pool].id}">}
       html << h(options[:pool].pretty_name.truncate(80))
       html << %{</a>}
+      html << %{</p>}
+    end
+
+    if options[:similarity]
+      html << %{<p class="desc">}
+      html << "Similarity: #{options[:similarity].round}%"
       html << %{</p>}
     end
 
@@ -54,8 +67,9 @@ class PostPresenter < Presenter
     html.html_safe
   end
 
-  def self.preview_class(post, description = nil)
+  def self.preview_class(post, description = nil, options = {})
     klass = "post-preview"
+    klass << " large-cropped" if post.has_cropped? && options[:show_cropped]
     klass << " pooled" if description
     klass << " post-status-pending" if post.is_pending?
     klass << " post-status-flagged" if post.is_flagged?
@@ -121,54 +135,39 @@ class PostPresenter < Presenter
     @post.humanized_essential_tag_string
   end
 
-  def categorized_tag_string
+  def categorized_tag_groups
     string = []
 
-    if @post.copyright_tags.any?
-      string << @post.copyright_tags.join(" ")
+    TagCategory.categorized_list.each do |category|
+      if @post.typed_tags(category).any?
+        string << @post.typed_tags(category).join(" ")
+      end
     end
+    
+    string
+  end
 
-    if @post.character_tags.any?
-      string << @post.character_tags.join(" ")
-    end
-
-    if @post.artist_tags.any?
-      string << @post.artist_tags.join(" ")
-    end
-
-    if @post.general_tags.any?
-      string << @post.general_tags.join(" ")
-    end
-
-    string.join(" \n")
+  def categorized_tag_string
+    categorized_tag_groups.join(" \n")
   end
 
   def humanized_categorized_tag_string
-    string = []
+    categorized_tag_groups.flatten.slice(0, 25).join(", ").tr("_", " ")
+  end
 
-    if @post.copyright_tags.any?
-      string << @post.copyright_tags
-    end
-
-    if @post.character_tags.any?
-      string << @post.character_tags
-    end
-
-    if @post.artist_tags.any?
-      string << @post.artist_tags
-    end
-
-    if @post.general_tags.any?
-      string << @post.general_tags
-    end
-
-    string.flatten.slice(0, 25).join(", ").tr("_", " ")
+  def safe_mode_message(template)
+    html = ["This image is unavailable on safe mode (#{Danbooru.config.app_name}). Go to "]
+    html << template.link_to("Danbooru", "http://danbooru.donmai.us")
+    html << " or disable safe mode to view ("
+    html << template.link_to("learn more", template.wiki_pages_path(title: "help:user_settings"))
+    html << ")."
+    html.join.html_safe
   end
 
   def image_html(template)
-    return template.content_tag("p", "The artist requested removal of this image") if @post.is_banned? && !CurrentUser.user.is_gold?
-    return template.content_tag("p", template.link_to("You need a gold account to see this image.", template.new_user_upgrade_path)) if !Danbooru.config.can_user_see_post?(CurrentUser.user, @post)
-    return template.content_tag("p", "This image is unavailable") if !@post.visible?
+    return template.content_tag("p", "The artist requested removal of this image") if @post.banblocked?
+    return template.content_tag("p", template.link_to("You need a gold account to see this image.", template.new_user_upgrade_path)) if @post.levelblocked?
+    return template.content_tag("p", safe_mode_message(template)) if @post.safeblocked?
 
     if @post.is_flash?
       template.render("posts/partials/show/flash", :post => @post)

@@ -93,9 +93,15 @@ module ApplicationHelper
     time_tag(time.strftime("%Y-%m-%d %H:%M"), time)
   end
 
-  def external_link_to(url)
+  def external_link_to(url, options = {})
+    if options[:truncate]
+      text = truncate(url, length: options[:truncate])
+    else
+      text = url
+    end
+
     if url =~ %r!\Ahttps?://!i
-      link_to url, url, {rel: :nofollow}
+      link_to text, url, {rel: :nofollow}
     else
       url
     end
@@ -180,7 +186,7 @@ module ApplicationHelper
 protected
   def nav_link_match(controller, url)
     url =~ case controller
-    when "sessions", "users", "maintenance/user/login_reminders", "maintenance/user/password_resets", "admin/users", "tag_subscriptions"
+    when "sessions", "users", "maintenance/user/login_reminders", "maintenance/user/password_resets", "admin/users"
       /^\/(session|users)/
 
     when "forum_posts"

@@ -21,7 +21,7 @@ class TagImplication < TagRelationship
       end
 
       def automatic_tags_for(names)
-        tags = names.grep(/\A(.+)_\(cosplay\)\Z/) { $1 }
+        tags = names.grep(/\A(.+)_\(cosplay\)\Z/) { "char:#{TagAlias.to_aliased([$1]).first}" }
         tags << "cosplay" if tags.present?
         tags.uniq
       end
@@ -51,7 +51,7 @@ class TagImplication < TagRelationship
     def update_descendant_names!
       clear_descendants_cache
       update_descendant_names
-      update({ :descendant_names => descendant_names }, :as => CurrentUser.role)
+      update_attribute(:descendant_names, descendant_names)
     end
 
     def update_descendant_names_for_parents
@@ -148,7 +148,7 @@ class TagImplication < TagRelationship
           update_posts
           update({ :status => "active" }, :as => CurrentUser.role)
           update_descendant_names_for_parents
-          forum_updater.update("The tag implication #{antecedent_name} -> #{consequent_name} has been approved.", "APPROVED") if update_topic
+          forum_updater.update(approval_message(approver), "APPROVED") if update_topic
         end
       rescue Exception => e
         if tries < 5
@@ -157,7 +157,7 @@ class TagImplication < TagRelationship
           retry
         end
 
-        forum_updater.update("The tag implication #{antecedent_name} -> #{consequent_name} failed during processing. Reason: #{e}", "FAILED") if update_topic
+        forum_updater.update(failure_message(e), "FAILED") if update_topic
         update({ :status => "error: #{e}" }, :as => CurrentUser.role)
 
         if Rails.env.production?
@@ -186,7 +186,7 @@ class TagImplication < TagRelationship
 
     def reject!
       update({ :status => "deleted", }, :as => CurrentUser.role)
-      forum_updater.update("The tag implication #{antecedent_name} -> #{consequent_name} has been rejected.", "REJECTED")
+      forum_updater.update(reject_message(CurrentUser.user), "REJECTED")
       destroy
     end
 
@@ -208,10 +208,6 @@ class TagImplication < TagRelationship
 
         ModAction.log("updated #{implication}\n#{change_desc}")
       end
-    end
-
-    def date_timestamp
-      Time.now.strftime("%Y-%m-%d")
     end
 
     def forum_updater

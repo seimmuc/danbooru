@@ -1,7 +1,6 @@
 class PostsController < ApplicationController
   before_filter :member_only, :except => [:show, :show_seq, :index, :home, :random]
   before_filter :builder_only, :only => [:copy_notes]
-  before_filter :enable_cors, :only => [:index, :show]
   respond_to :html, :xml, :json
 
   def index
@@ -111,6 +110,10 @@ private
   def respond_with_post_after_update(post)
     respond_with(post) do |format|
       format.html do
+        if post.warnings.any?
+          flash[:notice] = post.warnings.full_messages.join(".\n \n")
+        end
+
         if post.errors.any?
           @error_message = post.errors.full_messages.join("; ")
           render :template => "static/error", :status => 500
